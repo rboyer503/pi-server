@@ -18,8 +18,8 @@
 
 struct RawBuffer
 {
-	void * start;
-	size_t length;
+    void * start;
+    size_t length;
 };
 
 
@@ -27,37 +27,37 @@ class PiMgr;
 
 class VideoCaptureMgr
 {
-	PiMgr * m_owner;
-	int m_fd;
-	fd_set m_fds;
-	RawBuffer m_buffers[NUM_BUFFERS];
-	boost::thread m_thread;
-	volatile bool m_capturing;
-	std::queue<int> m_readyQueue;
-	std::queue<int> m_freeQueue;
-	boost::mutex m_readyQueueMutex;
-	boost::mutex m_freeQueueMutex;
-	boost::condition_variable m_condition;
-	cv::Mat * m_pCurrImage;
-	int m_currIndex;
+    PiMgr * m_owner;
+    int m_fd;
+    fd_set m_fds;
+    RawBuffer m_buffers[NUM_BUFFERS];
+    boost::thread m_thread;
+    volatile bool m_capturing;
+    std::queue<int> m_readyQueue;
+    std::queue<int> m_freeQueue;
+    boost::mutex m_readyQueueMutex;
+    boost::mutex m_freeQueueMutex;
+    boost::condition_variable m_condition;
+    cv::Mat * m_pCurrImage;
+    int m_currIndex;
 
 public:
-	VideoCaptureMgr(PiMgr * owner);
-	~VideoCaptureMgr();
+    VideoCaptureMgr(PiMgr * owner);
+    ~VideoCaptureMgr();
 
-	bool Initialize();
-	bool IsCapturing() const { return m_capturing; }
-	int GetLatest(cv::Mat *& image);
+    bool Initialize();
+    bool IsCapturing() const { return m_capturing; }
+    int GetLatest(cv::Mat *& image);
 
 private:
-	bool SetImageFormat();
-	bool SetFrameRate(int fps);
-	bool AllocateVideoMemory();
-	void DeAllocateVideoMemory();
-	void DoCapture();
-	bool ReEnqueue(int index);
+    bool SetImageFormat();
+    bool SetFrameRate(int fps);
+    bool AllocateVideoMemory();
+    void DeAllocateVideoMemory();
+    void DoCapture();
+    bool ReEnqueue(int index);
 
-	int xioctl(int fd, int request, void * arg);
+    int xioctl(int fd, int request, void * arg);
 };
 
 #endif /* VIDEOCAPTUREMGR_H_ */
