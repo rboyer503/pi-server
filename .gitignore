@@ -1,0 +1,7 @@
+.*
+!.gitignore
+*.vpj
+*.vpw
+*.vpwhist
+*.vtg
+build/
