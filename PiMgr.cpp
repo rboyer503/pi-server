@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "PiMgr.h"
+#include "Profiling.h"
 #include "SocketMgr.h"
 #include "VideoCaptureMgr.h"
 
@@ -20,28 +21,6 @@
 
 using namespace std;
 using namespace cv;
-
-
-// Global variables and macros for profiling.
-boost::posix_time::ptime g_start;
-boost::posix_time::time_duration g_diff;
-
-#define PROFILE_START g_start = boost::posix_time::microsec_clock::local_time();
-
-#define PROFILE_LOG(tag) \
-    do { \
-        g_diff = boost::posix_time::microsec_clock::local_time() - g_start; \
-        cout << "Profile (" << #tag << "): " << g_diff.total_microseconds() << " us" << endl; \
-    } while (0)
-
-#define PROFILE_DIFF (boost::posix_time::microsec_clock::local_time() - g_start).total_microseconds()
-
-
-template <typename T>
-T clamp(const T& val, const T& lower, const T& upper)
-{
-    return max(lower, min(val, upper));
-}
 
 
 const char * const PiMgr::c_imageProcModeNames[] = {"None", "Gray", "Blur", "FDR"};
@@ -337,8 +316,11 @@ bool PiMgr::ProcessFrame(Mat & frame)
 
     // Encode for wifi transmission.
     unique_ptr<vector<uchar> > pBuf;
-    static int sendToClient = 0;
-    if (++sendToClient % 2)
+
+    // TODO: Revisit configurable tx ratio.
+    // Currently just sending all frames to client.
+    //static int sendToClient = 0;
+    //if (++sendToClient % 2)
     {
         pBuf = std::make_unique<vector<uchar> >();
         imencode(".bmp", *pFrameDisplay, *pBuf);

@@ -1,27 +1,12 @@
 #include <iostream>
-#include "VideoCaptureMgr.h"
 
+#include "VideoCaptureMgr.h"
 #include "PiMgr.h"
+#include "Profiling.h"
+
 
 using namespace std;
 using namespace cv;
-
-
-// Global variables and macros for profiling.
-boost::posix_time::ptime g_start2;
-boost::posix_time::time_duration g_diff2;
-
-#define PROFILE_START \
-    do { \
-        g_start2 = boost::posix_time::microsec_clock::local_time(); \
-        cout << "Profile (RESET)" << endl; \
-    } while (0)
-
-#define PROFILE_LOG(tag) \
-    do { \
-        g_diff2 = boost::posix_time::microsec_clock::local_time() - g_start2; \
-        cout << "Profile (" << #tag << "): " << g_diff2.total_microseconds() << " us" << endl; \
-    } while (0)
 
 
 VideoCaptureMgr::VideoCaptureMgr(PiMgr * owner) :
@@ -56,13 +41,13 @@ bool VideoCaptureMgr::Initialize()
     FD_ZERO(&m_fds);
     FD_SET(m_fd, &m_fds);
 
+    // Configure frame rate.
+    if (!SetFrameRate(20))
+        return false;
+
     // Set up image format.
     if (!SetImageFormat())
         return false;
-
-    // Configure frame rate.
-    /*if (!SetFrameRate(10))
-        return false;*/
 
     // Initialize necessary video buffers.
     if (!AllocateVideoMemory())
@@ -158,7 +143,6 @@ bool VideoCaptureMgr::SetImageFormat()
 bool VideoCaptureMgr::SetFrameRate(int fps)
 {
     // TODO: Test for capability first.
-    // This will not work for SB101D camera because it only supports 30 fps.
     struct v4l2_streamparm streamparm;
     memset (&streamparm, 0, sizeof (streamparm));
     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -167,7 +151,7 @@ bool VideoCaptureMgr::SetFrameRate(int fps)
     pFract->denominator = fps;
     if ( -1 == xioctl(m_fd, VIDIOC_S_PARM, &streamparm))
     {
-        cout << "Error setting image format" << endl;
+        cout << "Error setting frame rate" << endl;
         return false;
     }
 

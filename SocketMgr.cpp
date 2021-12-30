@@ -3,9 +3,11 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstdlib>
-#include "SocketMgr.h"
 
+#include "SocketMgr.h"
 #include "PiMgr.h"
+#include "Profiling.h"
+
 
 using namespace std;
 
@@ -162,7 +164,11 @@ bool SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
         if (!m_pCurrBuffer)
             m_pCurrBuffer = std::move(pBuf);
         else
+        {
             ++m_droppedFrames;
+
+            cout << "DEBUG: Dropped frames=" << m_droppedFrames << endl;
+        }
     }
 
     return true;
@@ -218,9 +224,13 @@ void SocketMgr::MonitorWorker()
                 pBuf = std::move(m_pCurrBuffer);
         }
 
+        //PROFILE_START;
+
         // Delegate to the monitor socket.
         if (!m_pSocketMon->TransmitSizedMessage(&(*pBuf)[0], pBuf->size()))
             break;
+
+        //PROFILE_LOG(MSGOUT);
     }
 
     m_monitoring = false;
