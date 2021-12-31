@@ -12,9 +12,6 @@
 #include <opencv2/opencv.hpp>
 #include <queue>
 
-#define NUM_BUFFERS 10
-#define MIN_QUEUE_HEADSPACE 3 // User-owned buffer, Just captured buffer, and filling buffer
-
 
 struct RawBuffer
 {
@@ -27,19 +24,22 @@ class PiMgr;
 
 class VideoCaptureMgr
 {
+    static constexpr int c_numBuffers = 10;
+    static constexpr int c_minQueueHeadspace = 3; // User-owned buffer, Just captured buffer, and filling buffer
+
     PiMgr * m_owner;
-    int m_fd;
+    int m_fd = -1;
     fd_set m_fds;
-    RawBuffer m_buffers[NUM_BUFFERS];
+    RawBuffer m_buffers[c_numBuffers];
     boost::thread m_thread;
-    volatile bool m_capturing;
+    volatile bool m_capturing = false;
     std::queue<int> m_readyQueue;
     std::queue<int> m_freeQueue;
     boost::mutex m_readyQueueMutex;
     boost::mutex m_freeQueueMutex;
     boost::condition_variable m_condition;
-    cv::Mat * m_pCurrImage;
-    int m_currIndex;
+    cv::Mat * m_pCurrImage = nullptr;
+    int m_currIndex = -1;
 
 public:
     VideoCaptureMgr(PiMgr * owner);

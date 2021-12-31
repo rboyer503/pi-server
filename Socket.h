@@ -4,20 +4,20 @@
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
 
-#define RECV_BUFFER_SIZE 100
-
 
 class SocketMgr;
 
 class Socket
 {
+    static constexpr int c_recvBufferSize = 100;
+
     SocketMgr * m_pSocketMgr;
     int m_port;
-    int m_listenfd;
-    int m_connfd;
-    volatile bool m_accepting;
+    int m_listenfd = -1;
+    int m_connfd = -1;
+    volatile bool m_accepting = false;
     boost::thread m_thread;
-    char m_recvBuffer[RECV_BUFFER_SIZE];
+    char m_recvBuffer[c_recvBufferSize];
 
 public:
     Socket(SocketMgr * pSocketMgr, int port);

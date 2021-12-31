@@ -6,9 +6,6 @@
 
 #include "Socket.h"
 
-#define SM_MONITOR_PORT 5000
-#define SM_COMMAND_PORT 5001
-
 
 class PiMgr;
 
@@ -16,18 +13,21 @@ class SocketMgr
 {
     friend class Socket;
 
+    static constexpr int c_monitorPort = 5000;
+    static constexpr int c_commandPort = 5001;
+
     PiMgr * m_owner;
 
-    Socket * m_pSocketMon;
-    Socket * m_pSocketCmd;
+    Socket * m_pSocketMon = nullptr;
+    Socket * m_pSocketCmd = nullptr;
 
     boost::mutex m_acceptMutex;
     boost::condition_variable m_condition;
     boost::mutex m_monitorMutex;
 
-    bool m_connected;
-    bool m_reading;
-    bool m_monitoring;
+    bool m_connected = false;
+    bool m_reading = false;
+    bool m_monitoring = false;
 
     boost::thread m_thread;
     boost::thread m_monitorThread;

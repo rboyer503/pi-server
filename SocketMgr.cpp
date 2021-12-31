@@ -13,8 +13,7 @@ using namespace std;
 
 
 SocketMgr::SocketMgr(PiMgr * owner) :
-    m_owner(owner), m_pSocketMon(NULL), m_pSocketCmd(NULL),
-    m_connected(false), m_reading(false), m_monitoring(false)
+    m_owner(owner)
 {
 }
 
@@ -33,22 +32,22 @@ SocketMgr::~SocketMgr()
 
 bool SocketMgr::Initialize()
 {
-    m_pSocketMon = new Socket(this, SM_MONITOR_PORT);
+    m_pSocketMon = new Socket(this, c_monitorPort);
     if (!m_pSocketMon->EstablishListener())
     {
         delete m_pSocketMon;
-        m_pSocketMon = NULL;
+        m_pSocketMon = nullptr;
         return false;
     }
     cout << "Monitor socket listening..." << endl;
 
-    m_pSocketCmd = new Socket(this, SM_COMMAND_PORT);
+    m_pSocketCmd = new Socket(this, c_commandPort);
     if (!m_pSocketCmd->EstablishListener())
     {
         delete m_pSocketMon;
-        m_pSocketMon = NULL;
+        m_pSocketMon = nullptr;
         delete m_pSocketCmd;
-        m_pSocketCmd = NULL;
+        m_pSocketCmd = nullptr;
         return false;
     }
     cout << "Command socket listening..." << endl;
@@ -146,11 +145,11 @@ void SocketMgr::Close()
 {
     // Destroy sockets in preparation to program termination.
     delete m_pSocketMon;
-    m_pSocketMon = NULL;
+    m_pSocketMon = nullptr;
     cout << "Monitor socket released..." << endl;
 
     delete m_pSocketCmd;
-    m_pSocketCmd = NULL;
+    m_pSocketCmd = nullptr;
     cout << "Command socket released..." << endl;
 }
 
@@ -162,7 +161,7 @@ bool SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
     {
         boost::mutex::scoped_lock lock(m_monitorMutex);
         if (!m_pCurrBuffer)
-            m_pCurrBuffer = std::move(pBuf);
+            m_pCurrBuffer = move(pBuf);
         else
         {
             ++m_droppedFrames;
@@ -178,7 +177,7 @@ void SocketMgr::ReadCommandsWorker()
 {
     // Wait for client commands on command socket and handle them.
     char * recvBuffer;
-    while ( (recvBuffer = m_pSocketCmd->ReceiveCommand()) != NULL )
+    while ( (recvBuffer = m_pSocketCmd->ReceiveCommand()) != nullptr )
     {
         if (strcmp(recvBuffer, "mode") == 0)
             m_owner->UpdateIPM();
@@ -221,7 +220,7 @@ void SocketMgr::MonitorWorker()
             if (!m_pCurrBuffer)
                 continue;
             else
-                pBuf = std::move(m_pCurrBuffer);
+                pBuf = move(m_pCurrBuffer);
         }
 
         //PROFILE_START;

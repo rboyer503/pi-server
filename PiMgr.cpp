@@ -9,15 +9,6 @@
 
 #define ENABLE_SOCKET_MGR 1
 
-#define FRAME_SKIP 1
-#define FRAME_BACKLOG_MIN -5
-
-#define ROI_TOP 72
-#define ROI_WIDTH 160
-#define ROI_HEIGHT 30
-
-#define DEF_KERNEL_SIZE 5
-
 
 using namespace std;
 using namespace cv;
@@ -28,7 +19,7 @@ const char * const PiMgr::c_imageProcStageNames[] = {"Gray", "Blur", "Send", "To
 
 
 PiMgr::PiMgr() :
-        m_config(Config(DEF_KERNEL_SIZE))
+    m_config(Config(c_defKernelSize))
 {
     m_pSocketMgr = new SocketMgr(this);
 }
@@ -167,7 +158,7 @@ void PiMgr::WorkerFunc()
 
         // Continually transmit frames to client.
         Mat * frame;
-        int nextFrame = FRAME_SKIP;
+        int nextFrame = c_frameSkip;
         while (1)
         {
             //PROFILE_START;
@@ -195,9 +186,9 @@ void PiMgr::WorkerFunc()
             } while (nextFrame > 0);
             if (m_errorCode)
                 break;
-            nextFrame += FRAME_SKIP;
-            if (nextFrame < FRAME_BACKLOG_MIN)
-                nextFrame = FRAME_BACKLOG_MIN;
+            nextFrame += c_frameSkip;
+            if (nextFrame < c_frameBacklogMin)
+                nextFrame = c_frameBacklogMin;
 
             if (m_status.SuppressionProcessing())
                 m_startTime = boost::posix_time::microsec_clock::local_time();
@@ -206,12 +197,12 @@ void PiMgr::WorkerFunc()
 
             if (!m_status.IsSuppressed())
             {
-                if (nextFrame != FRAME_SKIP)
+                if (nextFrame != c_frameSkip)
                 {
                     m_status.numDroppedFrames++;
 
                     // Not possible to "catch up" on backlog when running full speed - just move on.
-                    if (FRAME_SKIP == 1)
+                    if (c_frameSkip == 1)
                         nextFrame = 1;
                 }
                 m_status.numFrames++;
@@ -261,12 +252,12 @@ bool PiMgr::ProcessFrame(Mat & frame)
 {
     PROFILE_START;
 
-    Mat * pFrameDisplay = NULL;
+    Mat * pFrameDisplay = nullptr;
     eBDImageProcMode ipm = m_ipm;
     int processUs[IPS_MAX];
     memset(processUs, 0, sizeof(processUs));
 
-    resize(frame, frame, Size(), 0.5, 0.5, INTER_AREA); //INTER_NEAREST);
+    //resize(frame, frame, Size(), 0.5, 0.5, INTER_AREA); //INTER_NEAREST);
 
     if (ipm == IPM_NONE)
     {
@@ -317,26 +308,52 @@ bool PiMgr::ProcessFrame(Mat & frame)
     // Encode for wifi transmission.
     unique_ptr<vector<uchar> > pBuf;
 
-    // TODO: Revisit configurable tx ratio.
-    // Currently just sending all frames to client.
-    //static int sendToClient = 0;
-    //if (++sendToClient % 2)
-    {
-        pBuf = std::make_unique<vector<uchar> >();
-        imencode(".bmp", *pFrameDisplay, *pBuf);
+    // Encode as PNG with fast compression.
+    vector<int> compression_params;
+    compression_params.push_back(IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(1);
 
-        // Transmit to client.
+    // Parallel processing for PNG encoding.
+    // Break image into segments and independently encode them.
+    vector<uchar> buffers[c_numTxSegments];
+    int segmentHeight = pFrameDisplay->rows / c_numTxSegments;
+
+    #pragma omp parallel for
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        Mat mat = (*pFrameDisplay)(Rect(0, segmentHeight * i, pFrameDisplay->cols, segmentHeight));
+        imencode(".png", mat, buffers[i], compression_params);
+    }
+
+    // Concatenate length-value pairs of buffers.
+    size_t bufferSize = c_numTxSegments * sizeof(int32_t);
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        bufferSize += buffers[i].size();
+    }
+
+    pBuf = make_unique<vector<uchar> >();
+    pBuf->reserve(bufferSize);
+
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        int32_t size = buffers[i].size();
+        uchar * sizeData = reinterpret_cast<uchar *>(&size);
+        pBuf->insert(pBuf->end(), sizeData, sizeData + sizeof(int32_t));
+        pBuf->insert(pBuf->end(), buffers[i].begin(), buffers[i].end());
+    }
+
+    // Transmit to client.
 #ifdef ENABLE_SOCKET_MGR
-        if (!m_pSocketMgr->SendFrame(std::move(pBuf)))
-        {
-            // Client probably disconnected - exit streaming loop and wait for a new connection.
-            m_errorCode = EC_SENDFAIL;
-            return false;
-        }
+    if (!m_pSocketMgr->SendFrame(move(pBuf)))
+    {
+        // Client probably disconnected - exit streaming loop and wait for a new connection.
+        m_errorCode = EC_SENDFAIL;
+        return false;
+    }
 #endif
 
-        processUs[IPS_SENT] = PROFILE_DIFF;
-    }
+    processUs[IPS_SENT] = PROFILE_DIFF;
 
     // Update status.
     if (!m_status.IsSuppressed())

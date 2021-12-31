@@ -1,9 +1,10 @@
-cmake_minimum_required (VERSION 2.8)
+cmake_minimum_required (VERSION 3.9)
 
 project (pi-server)
 
 find_package (OpenCV REQUIRED)
 find_package (Boost REQUIRED COMPONENTS thread date_time system)
+find_package (OpenMP REQUIRED)
 
 include_directories (${OpenCV_INCLUDE_DIRS})
 include_directories (${Boost_INCLUDE_DIRS})
@@ -21,4 +22,5 @@ target_link_libraries (pi-server
     ${Boost_DATE_TIME_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}
     -lv4l2
-    -pthread)
+    -pthread
+    OpenMP::OpenMP_CXX)

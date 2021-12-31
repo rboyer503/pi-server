@@ -11,9 +11,7 @@ using namespace std;
 
 
 Socket::Socket(SocketMgr * pSocketMgr, int port) :
-    m_pSocketMgr(pSocketMgr), m_port(port),
-    m_listenfd(-1), m_connfd(-1),
-    m_accepting(false)
+    m_pSocketMgr(pSocketMgr), m_port(port)
 {
 }
 
@@ -107,7 +105,7 @@ char * Socket::ReceiveCommand()
 {
     int recvSize = recv(m_connfd, m_recvBuffer, sizeof(m_recvBuffer)-1, 0);
     if (recvSize <= 0)
-        return NULL;
+        return nullptr;
 
     m_recvBuffer[recvSize] = 0;
     return m_recvBuffer;
@@ -161,7 +159,7 @@ void Socket::Close()
 void Socket::AcceptWorker()
 {
     // Block until connection is established.
-    m_connfd = accept(m_listenfd, (struct sockaddr *)NULL, NULL);
+    m_connfd = accept(m_listenfd, (struct sockaddr *)nullptr, nullptr);
 
     // Update flags and notify main thread.
     {

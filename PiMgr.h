@@ -104,6 +104,10 @@ class PiMgr
     static const char * const c_imageProcModeNames[];
     static const char * const c_imageProcStageNames[];
     static constexpr int c_maxFDRecords = 150;
+    static constexpr int c_frameSkip = 1;
+    static constexpr int c_frameBacklogMin = -5;
+    static constexpr int c_defKernelSize = 5;
+    static constexpr int c_numTxSegments = 4;
 
     eBDErrorCode m_errorCode = EC_NONE;
     SocketMgr * m_pSocketMgr;

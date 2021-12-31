@@ -1,6 +1,9 @@
 #ifndef PROFILING_H_
 #define PROFILING_H_
 
+#include <boost/date_time/posix_time/posix_time.hpp>
+
+
 // Global variables and macros for profiling.
 namespace
 {

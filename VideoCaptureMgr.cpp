@@ -10,8 +10,7 @@ using namespace cv;
 
 
 VideoCaptureMgr::VideoCaptureMgr(PiMgr * owner) :
-    m_owner(owner), m_fd(-1), m_capturing(false),
-    m_pCurrImage(NULL), m_currIndex(-1)
+    m_owner(owner)
 {
 }
 
@@ -59,7 +58,7 @@ bool VideoCaptureMgr::Initialize()
     return true;
 }
 
-int VideoCaptureMgr::GetLatest(cv::Mat *& image)
+int VideoCaptureMgr::GetLatest(Mat *& image)
 {
     //PROFILE_START;
 
@@ -72,7 +71,7 @@ int VideoCaptureMgr::GetLatest(cv::Mat *& image)
     if (m_currIndex != -1)
     {
         delete m_pCurrImage;
-        m_pCurrImage = NULL;
+        m_pCurrImage = nullptr;
 
         boost::mutex::scoped_lock lock(m_freeQueueMutex);
         m_freeQueue.push(m_currIndex);
@@ -161,17 +160,17 @@ bool VideoCaptureMgr::AllocateVideoMemory()
 {
     // Request buffers from driver.
     struct v4l2_requestbuffers req = {};
-    req.count = NUM_BUFFERS;
+    req.count = c_numBuffers;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
-    if ( (-1 == xioctl(m_fd, VIDIOC_REQBUFS, &req)) || (req.count != NUM_BUFFERS) )
+    if ( (-1 == xioctl(m_fd, VIDIOC_REQBUFS, &req)) || (req.count != c_numBuffers) )
     {
         cout << "Error requesting buffers" << endl;
         return false;
     }
 
     // Map each buffer into memory and track them in m_buffers.
-    for (size_t i = 0; i < NUM_BUFFERS; ++i)
+    for (size_t i = 0; i < c_numBuffers; ++i)
     {
         struct v4l2_buffer buf = {};
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -202,14 +201,14 @@ void VideoCaptureMgr::DeAllocateVideoMemory()
 {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     xioctl(m_fd, VIDIOC_STREAMOFF, &type);
-    for (size_t i = 0; i < NUM_BUFFERS; ++i)
+    for (size_t i = 0; i < c_numBuffers; ++i)
         v4l2_munmap(m_buffers[i].start, m_buffers[i].length);
 }
 
 void VideoCaptureMgr::DoCapture()
 {
     // Enqueue all buffers that we've allocated.
-    for (int i = 0; i < NUM_BUFFERS; ++i)
+    for (int i = 0; i < c_numBuffers; ++i)
     {
         struct v4l2_buffer buf = {};
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -242,7 +241,7 @@ void VideoCaptureMgr::DoCapture()
         {
             tv.tv_sec = 2;
             tv.tv_usec = 0;
-            r = select(m_fd + 1, &m_fds, NULL, NULL, &tv);
+            r = select(m_fd + 1, &m_fds, nullptr, nullptr, &tv);
         } while ( (r == -1) && (errno == EINTR) );
         if (r == -1)
         {
@@ -311,7 +310,7 @@ void VideoCaptureMgr::DoCapture()
         // Critical section begin
         {
             boost::mutex::scoped_lock lock(m_readyQueueMutex);
-            if (m_readyQueue.size() == (NUM_BUFFERS - MIN_QUEUE_HEADSPACE))
+            if (m_readyQueue.size() == (c_numBuffers - c_minQueueHeadspace))
             {
                 index = m_readyQueue.front();
                 m_readyQueue.pop();
