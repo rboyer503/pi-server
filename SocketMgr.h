@@ -2,6 +2,7 @@
 #define SOCKETMGR_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "Socket.h"
@@ -13,8 +14,9 @@ class SocketMgr
 {
     friend class Socket;
 
-    static constexpr int c_monitorPort = 5000;
-    static constexpr int c_commandPort = 5001;
+    static constexpr int c_monitorPort = 34601;
+    static constexpr int c_commandPort = 34602;
+    static constexpr const char * c_tokenFile = "/tmp/pi-server-token";
 
     PiMgr * m_owner;
 
@@ -28,6 +30,8 @@ class SocketMgr
     bool m_connected = false;
     bool m_reading = false;
     bool m_monitoring = false;
+    bool m_authorized = false;
+    bool m_badauth = false;
 
     boost::thread m_thread;
     boost::thread m_monitorThread;
@@ -40,6 +44,8 @@ public:
     ~SocketMgr();
 
     bool IsConnected() const { return m_connected; }
+    bool IsAuthorized() const { return m_authorized; }
+    bool IsBadAuth() const { return m_badauth; }
     int GetDroppedFrames() const { return m_droppedFrames; }
 
     bool Initialize();
@@ -54,6 +60,7 @@ public:
 private:
     void ReadCommandsWorker();
     void MonitorWorker();
+    std::string GetToken() const;
 
 };
 

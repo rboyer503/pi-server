@@ -39,7 +39,7 @@ bool kbhit()
     return (FD_ISSET(STDIN_FILENO, &fds) != 0);
 }
 
-int main(void)
+int main()
 {
     PiMgr piMgr;
     if (!piMgr.Initialize())

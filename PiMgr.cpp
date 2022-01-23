@@ -135,9 +135,40 @@ void PiMgr::WorkerFunc()
             break;
         }
 
-        // Start accepting commands from client and create monitor worker thread.
+        // Start accepting commands from client and wait for authorization token.
         m_pSocketMgr->StartReadingCommands();
         m_pSocketMgr->StartMonitorThread();
+
+        while (!m_pSocketMgr->IsAuthorized())
+        {
+            if (m_pSocketMgr->IsBadAuth())
+            {
+                cerr << "Error: Bad authorization token." << endl;
+                m_errorCode = EC_BADAUTH;
+                break;
+            }
+
+            try
+            {
+                boost::this_thread::interruption_point();
+            }
+            catch (boost::thread_interrupted&)
+            {
+                cout << "Interrupted after processing frame - shutting down server..." << endl;
+                m_errorCode = EC_INTERRUPT;
+                break;
+            }
+        }
+
+        if (!m_pSocketMgr->IsAuthorized())
+        {
+            if (!m_pSocketMgr->ReleaseConnection())
+            {
+                cerr << "Error: Connection release failed." << endl;
+                m_errorCode = EC_RELEASEFAIL;
+            }
+            break;
+        }
 #endif
 
         // Initialize video.

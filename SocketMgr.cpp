@@ -1,7 +1,10 @@
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <cstdio>
 #include <cstdlib>
 
 #include "SocketMgr.h"
@@ -158,6 +161,7 @@ bool SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
     if (!m_monitoring)
         return false;
 
+    if (m_authorized)
     {
         boost::mutex::scoped_lock lock(m_monitorMutex);
         if (!m_pCurrBuffer)
@@ -179,27 +183,38 @@ void SocketMgr::ReadCommandsWorker()
     char * recvBuffer;
     while ( (recvBuffer = m_pSocketCmd->ReceiveCommand()) != nullptr )
     {
-        if (strcmp(recvBuffer, "mode") == 0)
-            m_owner->UpdateIPM();
-        else if (strcmp(recvBuffer, "status") == 0)
-            m_owner->OutputStatus();
-        else if (strcmp(recvBuffer, "config") == 0)
-            m_owner->OutputConfig();
-        else if (strcmp(recvBuffer, "page") == 0)
-            m_owner->UpdatePage();
-        else if (strcmp(recvBuffer, "param1 up") == 0)
-            m_owner->UpdateParam(1, true);
-        else if (strcmp(recvBuffer, "param1 down") == 0)
-            m_owner->UpdateParam(1, false);
-        else if (strcmp(recvBuffer, "param2 up") == 0)
-            m_owner->UpdateParam(2, true);
-        else if (strcmp(recvBuffer, "param2 down") == 0)
-            m_owner->UpdateParam(2, false);
-        else if (strcmp(recvBuffer, "debug") == 0)
-            m_owner->DebugCommand();
-        else if (strcmp(recvBuffer, "debugmode") == 0)
+        if (!m_authorized)
         {
-            m_owner->ToggleDebugMode();
+            string token = recvBuffer;
+            if (token == GetToken())
+                m_authorized = true;
+            else
+                m_badauth = true;
+        }
+        else
+        {
+            if (strcmp(recvBuffer, "mode") == 0)
+                m_owner->UpdateIPM();
+            else if (strcmp(recvBuffer, "status") == 0)
+                m_owner->OutputStatus();
+            else if (strcmp(recvBuffer, "config") == 0)
+                m_owner->OutputConfig();
+            else if (strcmp(recvBuffer, "page") == 0)
+                m_owner->UpdatePage();
+            else if (strcmp(recvBuffer, "param1 up") == 0)
+                m_owner->UpdateParam(1, true);
+            else if (strcmp(recvBuffer, "param1 down") == 0)
+                m_owner->UpdateParam(1, false);
+            else if (strcmp(recvBuffer, "param2 up") == 0)
+                m_owner->UpdateParam(2, true);
+            else if (strcmp(recvBuffer, "param2 down") == 0)
+                m_owner->UpdateParam(2, false);
+            else if (strcmp(recvBuffer, "debug") == 0)
+                m_owner->DebugCommand();
+            else if (strcmp(recvBuffer, "debugmode") == 0)
+            {
+                m_owner->ToggleDebugMode();
+            }
         }
     }
 
@@ -233,5 +248,25 @@ void SocketMgr::MonitorWorker()
     }
 
     m_monitoring = false;
-    cout << "Socket manager monitor thread exited." << endl;
+    cout << "Socket manager monitor thread exited." << endl;}
+
+std::string SocketMgr::GetToken() const
+{
+    // Read token from token file, then delete it.
+    ifstream ifs(c_tokenFile);
+
+    if (!ifs.is_open())
+    {
+        cerr << "Error: Cannot open token file." << endl;
+        return {};
+    }
+
+    stringstream buffer;
+    buffer << ifs.rdbuf();
+
+    ifs.close();
+
+    remove(c_tokenFile);
+
+    return buffer.str();
 }

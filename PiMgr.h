@@ -5,6 +5,7 @@
 #include <limits>
 #include <numeric>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
@@ -21,7 +22,8 @@ enum eBDErrorCode
     EC_CAPTUREGRABFAIL,
     EC_SENDFAIL,
     EC_RELEASEFAIL,
-    EC_INTERRUPT
+    EC_INTERRUPT,
+    EC_BADAUTH
 };
 
 enum eBDImageProcMode
