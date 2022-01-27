@@ -175,7 +175,7 @@ public:
 
 private:
     void WorkerFunc();
-    bool ProcessFrame(cv::Mat & frame);
+    void ProcessFrame(cv::Mat & frame);
     cv::Mat * ProcessDebugFrame();
     void DisplayCurrentParamPage();
 

@@ -24,11 +24,13 @@ SocketMgr::~SocketMgr()
 {
     Close();
 
-    if (m_thread.joinable())
-        m_thread.join();
+    m_clientConnThread.interrupt();
 
-    if (m_monitorThread.joinable())
-        m_monitorThread.join();
+    if (m_commandThread.joinable())
+        m_commandThread.join();
+
+    if (m_clientConnThread.joinable())
+        m_clientConnThread.join();
 
     cout << "Socket manager destroyed." << endl;
 }
@@ -55,8 +57,128 @@ bool SocketMgr::Initialize()
     }
     cout << "Command socket listening..." << endl;
 
+    m_clientConnThread = boost::thread(&SocketMgr::ClientConnectionWorker, this);
+
     cout << "Socket manager initialized successfully." << endl;
     return true;
+}
+
+void SocketMgr::Close()
+{
+    // Destroy sockets in preparation to program termination.
+    delete m_pSocketMon;
+    m_pSocketMon = nullptr;
+    cout << "Monitor socket released..." << endl;
+
+    delete m_pSocketCmd;
+    m_pSocketCmd = nullptr;
+    cout << "Command socket released..." << endl;
+}
+
+void SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
+{
+    if (m_authorized)
+    {
+        boost::mutex::scoped_lock lock(m_monitorMutex);
+        if (!m_pCurrBuffer)
+            m_pCurrBuffer = move(pBuf);
+        else
+        {
+            ++m_droppedFrames;
+
+            cout << "DEBUG: Dropped frames=" << m_droppedFrames << endl;
+        }
+    }
+}
+
+void SocketMgr::ClientConnectionWorker()
+{
+    // Handle client connections.
+    // Exit only in response to an error condition or interruption (user cancellation request).
+    bool done = false;
+
+    while (!done)
+    {
+        // Accept an incoming connection.
+        if (!WaitForConnection())
+            break;
+
+        // Start accepting commands from client and wait for authorization token.
+        StartReadingCommands();
+
+        while (!m_authorized)
+        {
+            if (m_badauth)
+            {
+                cerr << "Error: Bad authorization token." << endl;
+                break;
+            }
+
+            try
+            {
+                boost::this_thread::interruption_point();
+            }
+            catch (boost::thread_interrupted&)
+            {
+                cout << "Interrupted waiting for authorization token..." << endl;
+                m_owner->SetInterrupted();
+                done = true;
+                break;
+            }
+        }
+
+        if (!m_authorized)
+        {
+            if (!ReleaseConnection())
+            {
+                cerr << "Error: Connection release failed." << endl;
+                done = true;
+            }
+
+            continue;
+        }
+
+        // Transmit frames to client for monitoring as they become available.
+        while (true)
+        {
+            try
+            {
+                boost::this_thread::sleep(boost::posix_time::milliseconds(5));
+            }
+            catch (boost::thread_interrupted&)
+            {
+                cout << "Client connection worker thread interrupted..." << endl;
+                m_owner->SetInterrupted();
+                done = true;
+                break;
+            }
+
+            unique_ptr<vector<unsigned char> > pBuf;
+
+            {
+                boost::mutex::scoped_lock lock(m_monitorMutex);
+                if (!m_pCurrBuffer)
+                    continue;
+                else
+                    pBuf = move(m_pCurrBuffer);
+            }
+
+            //PROFILE_START;
+
+            // Delegate to the monitor socket.
+            if (!m_pSocketMon->TransmitSizedMessage(&(*pBuf)[0], pBuf->size()))
+                break;
+
+            //PROFILE_LOG(MSGOUT);
+        }
+
+        // Clean up connection.
+        if (!ReleaseConnection())
+        {
+            cerr << "Error: Connection release failed." << endl;
+            done = true;
+        }
+    }
 }
 
 bool SocketMgr::WaitForConnection()
@@ -74,7 +196,7 @@ bool SocketMgr::WaitForConnection()
         return false;
     }
 
-    // Block until both sockets have complete connection accept processing.
+    // Block until both sockets have completed connection accept processing.
     {
         boost::mutex::scoped_lock lock(m_acceptMutex);
         try
@@ -89,7 +211,12 @@ bool SocketMgr::WaitForConnection()
         }
     }
 
-    if (!m_pSocketMon->IsConnected() || !m_pSocketCmd->IsConnected() || m_owner->IsInterrupted())
+    if (m_owner->IsInterrupted())
+    {
+        return false;
+    }
+
+    if (!m_pSocketMon->IsConnected() || !m_pSocketCmd->IsConnected())
     {
         // At least one socket accept failed.
         // Close both to get to a known state.
@@ -100,6 +227,7 @@ bool SocketMgr::WaitForConnection()
 
     cout << "Socket manager accepted new connection." << endl;
     m_connected = true;
+    m_authorized = m_badauth = false;
     m_droppedFrames = 0;
     return true;
 }
@@ -107,13 +235,7 @@ bool SocketMgr::WaitForConnection()
 void SocketMgr::StartReadingCommands()
 {
     m_reading = true;
-    m_thread = boost::thread(&SocketMgr::ReadCommandsWorker, this);
-}
-
-void SocketMgr::StartMonitorThread()
-{
-    m_monitoring = true;
-    m_monitorThread = boost::thread(&SocketMgr::MonitorWorker, this);
+    m_commandThread = boost::thread(&SocketMgr::ReadCommandsWorker, this);
 }
 
 bool SocketMgr::ReleaseConnection()
@@ -127,11 +249,8 @@ bool SocketMgr::ReleaseConnection()
     if (m_pSocketCmd)
         ret = ret && m_pSocketCmd->Shutdown();
 
-    if (m_thread.joinable())
-        m_thread.join();
-
-    if (m_monitorThread.joinable())
-        m_monitorThread.join();
+    if (m_commandThread.joinable())
+        m_commandThread.join();
 
     // Close actual sockets.
     if (m_pSocketMon)
@@ -142,39 +261,6 @@ bool SocketMgr::ReleaseConnection()
 
     cout << "Socket manager released connection." << endl;
     return ret;
-}
-
-void SocketMgr::Close()
-{
-    // Destroy sockets in preparation to program termination.
-    delete m_pSocketMon;
-    m_pSocketMon = nullptr;
-    cout << "Monitor socket released..." << endl;
-
-    delete m_pSocketCmd;
-    m_pSocketCmd = nullptr;
-    cout << "Command socket released..." << endl;
-}
-
-bool SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
-{
-    if (!m_monitoring)
-        return false;
-
-    if (m_authorized)
-    {
-        boost::mutex::scoped_lock lock(m_monitorMutex);
-        if (!m_pCurrBuffer)
-            m_pCurrBuffer = move(pBuf);
-        else
-        {
-            ++m_droppedFrames;
-
-            cout << "DEBUG: Dropped frames=" << m_droppedFrames << endl;
-        }
-    }
-
-    return true;
 }
 
 void SocketMgr::ReadCommandsWorker()
@@ -220,35 +306,6 @@ void SocketMgr::ReadCommandsWorker()
 
     cout << "Socket manager command reader thread exited." << endl;
 }
-
-void SocketMgr::MonitorWorker()
-{
-    // Transmit frames to client for monitoring as they become available.
-    while (true)
-    {
-        boost::this_thread::sleep(boost::posix_time::milliseconds(5));
-
-        unique_ptr<vector<unsigned char> > pBuf;
-
-        {
-            boost::mutex::scoped_lock lock(m_monitorMutex);
-            if (!m_pCurrBuffer)
-                continue;
-            else
-                pBuf = move(m_pCurrBuffer);
-        }
-
-        //PROFILE_START;
-
-        // Delegate to the monitor socket.
-        if (!m_pSocketMon->TransmitSizedMessage(&(*pBuf)[0], pBuf->size()))
-            break;
-
-        //PROFILE_LOG(MSGOUT);
-    }
-
-    m_monitoring = false;
-    cout << "Socket manager monitor thread exited." << endl;}
 
 std::string SocketMgr::GetToken() const
 {

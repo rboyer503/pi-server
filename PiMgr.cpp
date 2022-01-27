@@ -7,8 +7,6 @@
 #include "SocketMgr.h"
 #include "VideoCaptureMgr.h"
 
-#define ENABLE_SOCKET_MGR 1
-
 
 using namespace std;
 using namespace cv;
@@ -35,13 +33,11 @@ PiMgr::~PiMgr()
 bool PiMgr::Initialize()
 {
     // Initialize monitor and command sockets.
-#ifdef ENABLE_SOCKET_MGR
     if (!m_pSocketMgr->Initialize())
     {
         m_errorCode = EC_LISTENFAIL;
         return false;
     }
-#endif
 
     m_running = true;
     m_thread = boost::thread(&PiMgr::WorkerFunc, this);
@@ -120,166 +116,95 @@ void PiMgr::DebugCommand()
 
 void PiMgr::WorkerFunc()
 {
-    // Main loop - each iteration handles a client connection.
-    // Exit only in response to an error condition or interruption (user cancellation request).
-    while (1)
+    // Initialize video.
+    VideoCaptureMgr vcMgr(this);
+    if (!vcMgr.Initialize())
     {
-        // Accept an incoming connection.
-#ifdef ENABLE_SOCKET_MGR
-        if (!m_pSocketMgr->WaitForConnection())
+        cerr << "Error: Failed to open video capture." << endl;
+        m_errorCode = EC_CAPTUREOPENFAIL;
+        m_running = false;
+        return;
+    }
+
+    //system("v4l2-ctl --set-ctrl=contrast=100");
+    //system("v4l2-ctl --set-ctrl=brightness=90");
+
+    m_status = Status();
+
+    DisplayCurrentParamPage();
+
+    // Continually process frames.
+    Mat * frame;
+    int nextFrame = c_frameSkip;
+    while (true)
+    {
+        //PROFILE_START;
+
+        // Retrieve frame.
+        int skippedFrames;
+        do
         {
-            if (m_interrupted)
-                m_errorCode = EC_INTERRUPT;
-            else
-                m_errorCode = EC_ACCEPTFAIL;
-            break;
-        }
-
-        // Start accepting commands from client and wait for authorization token.
-        m_pSocketMgr->StartReadingCommands();
-        m_pSocketMgr->StartMonitorThread();
-
-        while (!m_pSocketMgr->IsAuthorized())
-        {
-            if (m_pSocketMgr->IsBadAuth())
+            if ( (skippedFrames = vcMgr.GetLatest(frame)) < 0 )
             {
-                cerr << "Error: Bad authorization token." << endl;
-                m_errorCode = EC_BADAUTH;
-                break;
-            }
-
-            try
-            {
-                boost::this_thread::interruption_point();
-            }
-            catch (boost::thread_interrupted&)
-            {
-                cout << "Interrupted after processing frame - shutting down server..." << endl;
-                m_errorCode = EC_INTERRUPT;
-                break;
-            }
-        }
-
-        if (!m_pSocketMgr->IsAuthorized())
-        {
-            if (!m_pSocketMgr->ReleaseConnection())
-            {
-                cerr << "Error: Connection release failed." << endl;
-                m_errorCode = EC_RELEASEFAIL;
-            }
-            break;
-        }
-#endif
-
-        // Initialize video.
-        VideoCaptureMgr vcMgr(this);
-        if (!vcMgr.Initialize())
-        {
-            cerr << "Error: Failed to open video capture." << endl;
-            m_errorCode = EC_CAPTUREOPENFAIL;
-            break;
-        }
-
-        //system("v4l2-ctl --set-ctrl=contrast=100");
-        //system("v4l2-ctl --set-ctrl=brightness=90");
-
-        m_status = Status();
-
-        DisplayCurrentParamPage();
-
-        // Continually transmit frames to client.
-        Mat * frame;
-        int nextFrame = c_frameSkip;
-        while (1)
-        {
-            //PROFILE_START;
-
-            // Retrieve frame.
-            int skippedFrames;
-            do
-            {
-                if ( (skippedFrames = vcMgr.GetLatest(frame)) < 0 )
+                if (m_interrupted)
                 {
-                    if (m_interrupted)
-                    {
-                        cout << "Interrupted while waiting for frame - shutting down server..." << endl;
-                        m_errorCode = EC_INTERRUPT;
-                    }
-                    else
-                    {
-                        cerr << "Error: Failed to read a frame." << endl;
-                        m_errorCode = EC_CAPTUREGRABFAIL;
-                    }
-                    break;
+                    cout << "Interrupted while waiting for frame - shutting down server..." << endl;
+                    m_errorCode = EC_INTERRUPT;
                 }
-                nextFrame -= skippedFrames + 1;
-                //PROFILE_LOG(read);
-            } while (nextFrame > 0);
-            if (m_errorCode)
+                else
+                {
+                    cerr << "Error: Failed to read a frame." << endl;
+                    m_errorCode = EC_CAPTUREGRABFAIL;
+                }
                 break;
-            nextFrame += c_frameSkip;
-            if (nextFrame < c_frameBacklogMin)
-                nextFrame = c_frameBacklogMin;
-
-            if (m_status.SuppressionProcessing())
-                m_startTime = boost::posix_time::microsec_clock::local_time();
-
+            }
+            nextFrame -= skippedFrames + 1;
             //PROFILE_LOG(read);
-
-            if (!m_status.IsSuppressed())
-            {
-                if (nextFrame != c_frameSkip)
-                {
-                    m_status.numDroppedFrames++;
-
-                    // Not possible to "catch up" on backlog when running full speed - just move on.
-                    if (c_frameSkip == 1)
-                        nextFrame = 1;
-                }
-                m_status.numFrames++;
-            }
-
-            // Process frame.
-            if (!ProcessFrame(*frame))
-            {
-                // Suppress error for send failure - just wait for another connection.
-                if (m_errorCode == EC_SENDFAIL)
-                    m_errorCode = EC_NONE;
-                break;
-            }
-
-            m_diff = boost::posix_time::microsec_clock::local_time() - m_startTime;
-
-            try
-            {
-                boost::this_thread::interruption_point();
-            }
-            catch (boost::thread_interrupted&)
-            {
-                cout << "Interrupted after processing frame - shutting down server..." << endl;
-                m_errorCode = EC_INTERRUPT;
-                break;
-            }
-        } // end video streaming loop
-
-        // Clean up connection.
-#ifdef ENABLE_SOCKET_MGR
-        if (!m_pSocketMgr->ReleaseConnection())
-        {
-            cerr << "Error: Connection release failed." << endl;
-            m_errorCode = EC_RELEASEFAIL;
-        }
-#endif
-
-        // Exit program if any error was reported.
+        } while (nextFrame > 0);
         if (m_errorCode)
             break;
-    } // end connection handling loop
+        nextFrame += c_frameSkip;
+        if (nextFrame < c_frameBacklogMin)
+            nextFrame = c_frameBacklogMin;
+
+        if (m_status.SuppressionProcessing())
+            m_startTime = boost::posix_time::microsec_clock::local_time();
+
+        //PROFILE_LOG(read);
+
+        if (!m_status.IsSuppressed())
+        {
+            if (nextFrame != c_frameSkip)
+            {
+                m_status.numDroppedFrames++;
+
+                // Not possible to "catch up" on backlog when running full speed - just move on.
+                if (c_frameSkip == 1)
+                    nextFrame = 1;
+            }
+            m_status.numFrames++;
+        }
+
+        ProcessFrame(*frame);
+
+        m_diff = boost::posix_time::microsec_clock::local_time() - m_startTime;
+
+        try
+        {
+            boost::this_thread::interruption_point();
+        }
+        catch (boost::thread_interrupted&)
+        {
+            cout << "Interrupted after processing frame - shutting down server..." << endl;
+            m_errorCode = EC_INTERRUPT;
+            break;
+        }
+    }
 
     m_running = false;
 }
 
-bool PiMgr::ProcessFrame(Mat & frame)
+void PiMgr::ProcessFrame(Mat & frame)
 {
     PROFILE_START;
 
@@ -375,14 +300,7 @@ bool PiMgr::ProcessFrame(Mat & frame)
     }
 
     // Transmit to client.
-#ifdef ENABLE_SOCKET_MGR
-    if (!m_pSocketMgr->SendFrame(move(pBuf)))
-    {
-        // Client probably disconnected - exit streaming loop and wait for a new connection.
-        m_errorCode = EC_SENDFAIL;
-        return false;
-    }
-#endif
+    m_pSocketMgr->SendFrame(move(pBuf));
 
     processUs[IPS_SENT] = PROFILE_DIFF;
 
@@ -406,8 +324,6 @@ bool PiMgr::ProcessFrame(Mat & frame)
             }
         }
     }
-
-    return true;
 }
 
 Mat * PiMgr::ProcessDebugFrame()

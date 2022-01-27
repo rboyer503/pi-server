@@ -29,12 +29,11 @@ class SocketMgr
 
     bool m_connected = false;
     bool m_reading = false;
-    bool m_monitoring = false;
     bool m_authorized = false;
     bool m_badauth = false;
 
-    boost::thread m_thread;
-    boost::thread m_monitorThread;
+    boost::thread m_clientConnThread;
+    boost::thread m_commandThread;
 
     std::unique_ptr<std::vector<unsigned char> > m_pCurrBuffer;
     int m_droppedFrames = 0;
@@ -49,15 +48,15 @@ public:
     int GetDroppedFrames() const { return m_droppedFrames; }
 
     bool Initialize();
-    bool WaitForConnection();
-    void StartReadingCommands();
-    void StartMonitorThread();
-    bool ReleaseConnection();
     void Close();
 
-    bool SendFrame(std::unique_ptr<std::vector<unsigned char> > pBuf);
+    void SendFrame(std::unique_ptr<std::vector<unsigned char> > pBuf);
 
 private:
+    void ClientConnectionWorker();
+    bool WaitForConnection();
+    void StartReadingCommands();
+    bool ReleaseConnection();
     void ReadCommandsWorker();
     void MonitorWorker();
     std::string GetToken() const;
