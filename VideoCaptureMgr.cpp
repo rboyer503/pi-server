@@ -41,7 +41,7 @@ bool VideoCaptureMgr::Initialize()
     FD_SET(m_fd, &m_fds);
 
     // Configure frame rate.
-    if (!SetFrameRate(20))
+    if (!SetFrameRate(30))
         return false;
 
     // Set up image format.
@@ -145,12 +145,20 @@ bool VideoCaptureMgr::SetFrameRate(int fps)
     struct v4l2_streamparm streamparm;
     memset (&streamparm, 0, sizeof (streamparm));
     streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if (v4l2_ioctl(m_fd, VIDIOC_G_PARM, &streamparm) != 0)
+    {
+        cout << "Error getting stream parameters." << endl;
+        return false;
+    }
+
+    streamparm.parm.capture.capturemode |= V4L2_CAP_TIMEPERFRAME;
     struct v4l2_fract * pFract = &streamparm.parm.capture.timeperframe;
     pFract->numerator = 1;
     pFract->denominator = fps;
-    if ( -1 == xioctl(m_fd, VIDIOC_S_PARM, &streamparm))
+    if (v4l2_ioctl(m_fd, VIDIOC_S_PARM, &streamparm) != 0)
     {
-        cout << "Error setting frame rate" << endl;
+        cout << "Error setting frame rate." << endl;
         return false;
     }
 

@@ -87,7 +87,6 @@ bool Socket::TransmitSizedMessage(unsigned char * pRawData, int size)
     // Send length of frame to client.
     if (send(m_connfd, &size, sizeof(size), MSG_NOSIGNAL) < 0)
     {
-        //cerr << "Error: Frame length send failed." << endl;
         cout << "Remote client disconnected." << endl;
         return false;
     }

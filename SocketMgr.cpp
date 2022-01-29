@@ -160,13 +160,13 @@ void SocketMgr::ClientConnectionWorker()
                     pBuf = move(m_pCurrBuffer);
             }
 
-            //PROFILE_START;
+            PROFILE_START;
 
             // Delegate to the monitor socket.
             if (!m_pSocketMon->TransmitSizedMessage(&(*pBuf)[0], pBuf->size()))
                 break;
 
-            //PROFILE_LOG(MSGOUT);
+            PROFILE_LOG(MSGOUT);
         }
 
         // Clean up connection.
