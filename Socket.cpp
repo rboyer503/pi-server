@@ -39,6 +39,15 @@ bool Socket::EstablishListener()
         return false;
     }
 
+    // Enable reusing address for this socket.
+    // This allows server to be immediately restarted without waiting for client to time out.
+    int enable = 1;
+    if (setsockopt(m_listenfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0)
+    {
+        cerr << "Error: Could not set socket option." << endl;
+        return false;
+    }
+
     struct sockaddr_in serverAddr;
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);

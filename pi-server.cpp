@@ -65,8 +65,6 @@ int main()
                 piMgr.UpdateIPM();
             else if (c == 'p')
                 piMgr.UpdatePage();
-            else if (c == 'd')
-                piMgr.DebugCommand();
             else if (c == '[')
                 piMgr.UpdateParam(1, false);
             else if (c == ']')
@@ -75,6 +73,8 @@ int main()
                 piMgr.UpdateParam(2, false);
             else if (c == '}')
                 piMgr.UpdateParam(2, true);
+            else if (c == '*')
+                piMgr.ToggleDebugMode();
         }
 
         boost::this_thread::sleep(boost::posix_time::milliseconds(5));

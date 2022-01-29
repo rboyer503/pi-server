@@ -3,12 +3,14 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <numeric>
-#include <opencv2/opencv.hpp>
 #include <string>
+#include <vector>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
+#include <opencv2/opencv.hpp>
 
 #define STATUS_SUPPRESS_DELAY 10
 
@@ -20,10 +22,8 @@ enum eBDErrorCode
     EC_ACCEPTFAIL,
     EC_CAPTUREOPENFAIL,
     EC_CAPTUREGRABFAIL,
-    EC_SENDFAIL,
     EC_RELEASEFAIL,
-    EC_INTERRUPT,
-    EC_BADAUTH
+    EC_INTERRUPT
 };
 
 enum eBDImageProcMode
@@ -31,7 +31,6 @@ enum eBDImageProcMode
     IPM_NONE,
     IPM_GRAY,
     IPM_BLUR,
-    IPM_DEBUG,
     IPM_MAX
 };
 
@@ -92,11 +91,6 @@ struct Config
     {}
 };
 
-struct FDRecord
-{
-    cv::Mat frame;
-};
-
 
 class SocketMgr;
 
@@ -105,7 +99,6 @@ class PiMgr
 {
     static const char * const c_imageProcModeNames[];
     static const char * const c_imageProcStageNames[];
-    static constexpr int c_maxFDRecords = 150;
     static constexpr int c_frameSkip = 1;
     static constexpr int c_frameBacklogMin = -5;
     static constexpr int c_defKernelSize = 5;
@@ -120,18 +113,10 @@ class PiMgr
     Status m_status;
     Config m_config;
     eBDParamPage m_paramPage = PP_BLUR;
-    bool m_debugTrigger = false;
     boost::posix_time::ptime m_startTime;
     boost::posix_time::time_duration m_diff;
-    cv::Mat m_frameResize;
     cv::Mat m_frameGray;
-    cv::Mat m_frameROI;
     cv::Mat m_frameFilter;
-    FDRecord m_FDRecords[c_maxFDRecords];
-    int m_currFDRIndex = 0;
-    bool m_FDRFull = false;
-    int m_selectedFDRIndex = 0;
-    bool m_updateFDR = true;
     bool m_debugMode = false;
 
 public:
@@ -151,32 +136,12 @@ public:
     void OutputConfig();
     void UpdatePage();
     void UpdateParam(int param, bool up);
-    void DebugCommand();
     void ToggleDebugMode() { m_debugMode = !m_debugMode; }
-
-    void PrevFDR()
-    {
-        int maxIndex = (m_FDRFull ? c_maxFDRecords - 1 : m_currFDRIndex - 1);
-
-        if (--m_selectedFDRIndex < 0)
-            m_selectedFDRIndex = maxIndex;
-
-        m_updateFDR = true;
-    }
-    void NextFDR()
-    {
-        int maxIndex = (m_FDRFull ? c_maxFDRecords - 1 : m_currFDRIndex - 1);
-
-        if (++m_selectedFDRIndex > maxIndex)
-            m_selectedFDRIndex = 0;
-
-        m_updateFDR = true;
-    }
 
 private:
     void WorkerFunc();
     void ProcessFrame(cv::Mat & frame);
-    cv::Mat * ProcessDebugFrame();
+    std::unique_ptr<std::vector<uchar> > CompressFrame(cv::Mat * pFrame) const;
     void DisplayCurrentParamPage();
 
 };

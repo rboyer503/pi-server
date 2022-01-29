@@ -27,8 +27,6 @@ class SocketMgr
     boost::condition_variable m_condition;
     boost::mutex m_monitorMutex;
 
-    bool m_connected = false;
-    bool m_reading = false;
     bool m_authorized = false;
     bool m_badauth = false;
 
@@ -42,14 +40,10 @@ public:
     SocketMgr(PiMgr * owner);
     ~SocketMgr();
 
-    bool IsConnected() const { return m_connected; }
-    bool IsAuthorized() const { return m_authorized; }
-    bool IsBadAuth() const { return m_badauth; }
-    int GetDroppedFrames() const { return m_droppedFrames; }
-
     bool Initialize();
     void Close();
 
+    bool IsReady() const { return m_authorized; }
     void SendFrame(std::unique_ptr<std::vector<unsigned char> > pBuf);
 
 private:

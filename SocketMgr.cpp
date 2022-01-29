@@ -77,17 +77,14 @@ void SocketMgr::Close()
 
 void SocketMgr::SendFrame(unique_ptr<vector<unsigned char> > pBuf)
 {
-    if (m_authorized)
+    boost::mutex::scoped_lock lock(m_monitorMutex);
+    if (!m_pCurrBuffer)
+        m_pCurrBuffer = move(pBuf);
+    else
     {
-        boost::mutex::scoped_lock lock(m_monitorMutex);
-        if (!m_pCurrBuffer)
-            m_pCurrBuffer = move(pBuf);
-        else
-        {
-            ++m_droppedFrames;
+        ++m_droppedFrames;
 
-            cout << "DEBUG: Dropped frames=" << m_droppedFrames << endl;
-        }
+        cout << "DEBUG: Dropped frames=" << m_droppedFrames << endl;
     }
 }
 
@@ -183,6 +180,9 @@ void SocketMgr::ClientConnectionWorker()
 
 bool SocketMgr::WaitForConnection()
 {
+    m_authorized = m_badauth = false;
+    m_droppedFrames = 0;
+
     // Start worker threads to accept a connection for each socket.
     if (!m_pSocketMon->AcceptConnection())
     {
@@ -226,15 +226,11 @@ bool SocketMgr::WaitForConnection()
     }
 
     cout << "Socket manager accepted new connection." << endl;
-    m_connected = true;
-    m_authorized = m_badauth = false;
-    m_droppedFrames = 0;
     return true;
 }
 
 void SocketMgr::StartReadingCommands()
 {
-    m_reading = true;
     m_commandThread = boost::thread(&SocketMgr::ReadCommandsWorker, this);
 }
 
@@ -279,12 +275,12 @@ void SocketMgr::ReadCommandsWorker()
         }
         else
         {
-            if (strcmp(recvBuffer, "mode") == 0)
-                m_owner->UpdateIPM();
-            else if (strcmp(recvBuffer, "status") == 0)
+            if (strcmp(recvBuffer, "status") == 0)
                 m_owner->OutputStatus();
             else if (strcmp(recvBuffer, "config") == 0)
                 m_owner->OutputConfig();
+            else if (strcmp(recvBuffer, "mode") == 0)
+                m_owner->UpdateIPM();
             else if (strcmp(recvBuffer, "page") == 0)
                 m_owner->UpdatePage();
             else if (strcmp(recvBuffer, "param1 up") == 0)
@@ -295,12 +291,8 @@ void SocketMgr::ReadCommandsWorker()
                 m_owner->UpdateParam(2, true);
             else if (strcmp(recvBuffer, "param2 down") == 0)
                 m_owner->UpdateParam(2, false);
-            else if (strcmp(recvBuffer, "debug") == 0)
-                m_owner->DebugCommand();
             else if (strcmp(recvBuffer, "debugmode") == 0)
-            {
                 m_owner->ToggleDebugMode();
-            }
         }
     }
 

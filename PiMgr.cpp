@@ -1,6 +1,5 @@
 #include <cstdlib>
 #include <fstream>
-#include <vector>
 
 #include "PiMgr.h"
 #include "Profiling.h"
@@ -12,7 +11,7 @@ using namespace std;
 using namespace cv;
 
 
-const char * const PiMgr::c_imageProcModeNames[] = {"None", "Gray", "Blur", "FDR"};
+const char * const PiMgr::c_imageProcModeNames[] = {"None", "Gray", "Blur"};
 const char * const PiMgr::c_imageProcStageNames[] = {"Gray", "Blur", "Send", "Total"};
 
 
@@ -52,8 +51,6 @@ void PiMgr::Terminate()
 void PiMgr::UpdateIPM()
 {
     m_ipm = (eBDImageProcMode)(((int)m_ipm + 1) % IPM_MAX);
-    if (m_ipm == IPM_NONE)
-        m_ipm = IPM_GRAY;
     cout << "Image processing mode: " << c_imageProcModeNames[m_ipm] << endl;
 }
 
@@ -109,11 +106,6 @@ void PiMgr::UpdateParam(int param, bool up)
     }
 }
 
-void PiMgr::DebugCommand()
-{
-    m_debugTrigger = true;
-}
-
 void PiMgr::WorkerFunc()
 {
     // Initialize video.
@@ -125,9 +117,6 @@ void PiMgr::WorkerFunc()
         m_running = false;
         return;
     }
-
-    //system("v4l2-ctl --set-ctrl=contrast=100");
-    //system("v4l2-ctl --set-ctrl=brightness=90");
 
     m_status = Status();
 
@@ -208,101 +197,47 @@ void PiMgr::ProcessFrame(Mat & frame)
 {
     PROFILE_START;
 
-    Mat * pFrameDisplay = nullptr;
+    Mat * pFrameFinal = nullptr;
     eBDImageProcMode ipm = m_ipm;
     int processUs[IPS_MAX];
     memset(processUs, 0, sizeof(processUs));
 
-    //resize(frame, frame, Size(), 0.5, 0.5, INTER_AREA); //INTER_NEAREST);
+    // Use processing pipeline based on selected IPM.
+    switch (ipm)
+    {
+    case IPM_NONE:
+        pFrameFinal = &frame;
+        break;
 
-    if (ipm == IPM_NONE)
-    {
-        pFrameDisplay = &frame;
-    }
-    else if (ipm == IPM_DEBUG)
-    {
-        pFrameDisplay = ProcessDebugFrame();
-    }
-    else
-    {
-        // Convert to downsampled, grayscale image with correct orientation and focus to ROI.
-        //resize(frame, m_frameResize, Size(), 0.5, 0.5, INTER_NEAREST);
-        //cvtColor(m_frameResize, m_frameGray, COLOR_BGR2GRAY);
+    case IPM_GRAY:
+        // Convert to grayscale image.
         cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
-        //flip(m_frameGray, m_frameGray, -1);
-        //m_frameROI = m_frameGray(Rect(0, ROI_TOP, ROI_WIDTH, ROI_HEIGHT));
-        m_frameROI = m_frameGray;
-
         processUs[IPS_GRAY] = PROFILE_DIFF;
         PROFILE_START;
 
-        if (ipm == IPM_GRAY)
-        {
-            pFrameDisplay = &m_frameROI;
-        }
-        else
-        {
-            // Apply gaussian blur.
-            GaussianBlur(m_frameROI, m_frameFilter, Size(m_config.kernelSize, m_config.kernelSize), 0, 0);
+        pFrameFinal = &m_frameGray;
+        break;
 
-            processUs[IPS_BLUR] = PROFILE_DIFF;
-            PROFILE_START;
+    case IPM_BLUR:
+        // Convert to grayscale image and apply gaussian blur.
+        cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
+        processUs[IPS_GRAY] = PROFILE_DIFF;
+        PROFILE_START;
 
-            if (ipm == IPM_BLUR)
-            {
-                if (m_debugMode)
-                    pFrameDisplay = &m_frameFilter;
-                else
-                {
-                    //flip(frame, frame, -1);
-                    pFrameDisplay = &frame;
-                }
-            }
-        }
+        GaussianBlur(m_frameGray, m_frameFilter, Size(m_config.kernelSize, m_config.kernelSize), 0, 0);
+        processUs[IPS_BLUR] = PROFILE_DIFF;
+        PROFILE_START;
+
+        pFrameFinal = &m_frameFilter;
+        break;
     }
 
-    // Encode for wifi transmission.
-    unique_ptr<vector<uchar> > pBuf;
-
-    // Encode as PNG with fast compression.
-    vector<int> compression_params;
-    compression_params.push_back(IMWRITE_PNG_COMPRESSION);
-    compression_params.push_back(1);
-
-    // Parallel processing for PNG encoding.
-    // Break image into segments and independently encode them.
-    vector<uchar> buffers[c_numTxSegments];
-    int segmentHeight = pFrameDisplay->rows / c_numTxSegments;
-
-    #pragma omp parallel for
-    for (int i = 0; i < c_numTxSegments; ++i)
+    // Compress and transmit the frame if the client is ready.
+    if (m_pSocketMgr->IsReady())
     {
-        Mat mat = (*pFrameDisplay)(Rect(0, segmentHeight * i, pFrameDisplay->cols, segmentHeight));
-        imencode(".png", mat, buffers[i], compression_params);
+        m_pSocketMgr->SendFrame(CompressFrame(pFrameFinal));
+        processUs[IPS_SENT] = PROFILE_DIFF;
     }
-
-    // Concatenate length-value pairs of buffers.
-    size_t bufferSize = c_numTxSegments * sizeof(int32_t);
-    for (int i = 0; i < c_numTxSegments; ++i)
-    {
-        bufferSize += buffers[i].size();
-    }
-
-    pBuf = make_unique<vector<uchar> >();
-    pBuf->reserve(bufferSize);
-
-    for (int i = 0; i < c_numTxSegments; ++i)
-    {
-        int32_t size = buffers[i].size();
-        uchar * sizeData = reinterpret_cast<uchar *>(&size);
-        pBuf->insert(pBuf->end(), sizeData, sizeData + sizeof(int32_t));
-        pBuf->insert(pBuf->end(), buffers[i].begin(), buffers[i].end());
-    }
-
-    // Transmit to client.
-    m_pSocketMgr->SendFrame(move(pBuf));
-
-    processUs[IPS_SENT] = PROFILE_DIFF;
 
     // Update status.
     if (!m_status.IsSuppressed())
@@ -326,17 +261,44 @@ void PiMgr::ProcessFrame(Mat & frame)
     }
 }
 
-Mat * PiMgr::ProcessDebugFrame()
+unique_ptr<vector<uchar> > PiMgr::CompressFrame(Mat * pFrame) const
 {
-    FDRecord & currFDR = m_FDRecords[m_selectedFDRIndex];
-    if (m_updateFDR)
-    {
-        m_updateFDR = false;
+    // Encode as PNG with fast compression.
+    vector<int> compression_params;
+    compression_params.push_back(IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(1);
 
-        cout << "FDR #" << m_selectedFDRIndex << endl;
+    // Parallel processing for PNG encoding.
+    // Break image into segments and independently encode them.
+    vector<uchar> buffers[c_numTxSegments];
+    int segmentHeight = pFrame->rows / c_numTxSegments;
+
+    #pragma omp parallel for
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        Mat mat = (*pFrame)(Rect(0, segmentHeight * i, pFrame->cols, segmentHeight));
+        imencode(".png", mat, buffers[i], compression_params);
     }
 
-    return &(currFDR.frame);
+    // Concatenate length-value pairs of buffers.
+    size_t bufferSize = c_numTxSegments * sizeof(int32_t);
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        bufferSize += buffers[i].size();
+    }
+
+    auto pBuf = make_unique<vector<uchar> >();
+    pBuf->reserve(bufferSize);
+
+    for (int i = 0; i < c_numTxSegments; ++i)
+    {
+        int32_t size = buffers[i].size();
+        uchar * sizeData = reinterpret_cast<uchar *>(&size);
+        pBuf->insert(pBuf->end(), sizeData, sizeData + sizeof(int32_t));
+        pBuf->insert(pBuf->end(), buffers[i].begin(), buffers[i].end());
+    }
+
+    return pBuf;
 }
 
 void PiMgr::DisplayCurrentParamPage()
