@@ -29,6 +29,7 @@ enum eBDErrorCode
 enum eBDImageProcMode
 {
     IPM_NONE,
+    IPM_MOTIONDETECT,
     IPM_GRAY,
     IPM_BLUR,
     IPM_MAX
@@ -36,6 +37,7 @@ enum eBDImageProcMode
 
 enum eBDImageProcStage
 {
+    IPS_MOTIONDETECT,
     IPS_GRAY,
     IPS_BLUR,
     IPS_SENT,
@@ -46,6 +48,7 @@ enum eBDImageProcStage
 enum eBDParamPage
 {
     PP_BLUR,
+    PP_THRESHOLD,
     PP_MAX
 };
 
@@ -85,14 +88,17 @@ public:
 struct Config
 {
     unsigned char kernelSize; // Gaussian kernel size used for preliminary blur op.
+    unsigned char threshold;
 
-    Config(unsigned char _kernelSize) :
-        kernelSize(_kernelSize)
+    Config(unsigned char _kernelSize, unsigned char _threshold) :
+        kernelSize(_kernelSize),
+        threshold(_threshold)
     {}
 };
 
 
 class SocketMgr;
+class MotionDetector;
 
 
 class PiMgr
@@ -102,10 +108,12 @@ class PiMgr
     static constexpr int c_frameSkip = 2;
     static constexpr int c_frameBacklogMin = -5;
     static constexpr int c_defKernelSize = 5;
+    static constexpr int c_defThreshold = 20;
     static constexpr int c_numTxSegments = 4;
 
     eBDErrorCode m_errorCode = EC_NONE;
     SocketMgr * m_pSocketMgr;
+    std::unique_ptr<MotionDetector> m_motionDetector;
     boost::thread m_thread;
     volatile bool m_running = false;
     bool m_interrupted = false;

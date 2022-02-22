@@ -2,6 +2,7 @@
 #include <fstream>
 
 #include "PiMgr.h"
+#include "MotionDetector.h"
 #include "Profiling.h"
 #include "SocketMgr.h"
 #include "VideoCaptureMgr.h"
@@ -11,12 +12,13 @@ using namespace std;
 using namespace cv;
 
 
-const char * const PiMgr::c_imageProcModeNames[] = {"None", "Gray", "Blur"};
-const char * const PiMgr::c_imageProcStageNames[] = {"Gray", "Blur", "Send", "Total"};
+const char * const PiMgr::c_imageProcModeNames[] = {"None", "MotionDetect", "Gray", "Blur"};
+const char * const PiMgr::c_imageProcStageNames[] = {"MotionDetect", "Gray", "Blur", "Send", "Total"};
 
 
 PiMgr::PiMgr() :
-    m_config(Config(c_defKernelSize))
+    m_motionDetector(new MotionDetector(c_defThreshold)),
+    m_config(Config(c_defKernelSize, c_defThreshold))
 {
     m_pSocketMgr = new SocketMgr(this);
 }
@@ -70,7 +72,7 @@ void PiMgr::OutputStatus()
     cout << "\tAverage FPS=" << (m_status.numFrames / m_diff.total_seconds()) << endl;
 
     cout << "  Processing times:" << endl;
-    for (int i = IPS_GRAY; i < IPS_MAX; ++i)
+    for (int i = IPS_MOTIONDETECT; i < IPS_MAX; ++i)
     {
         cout << "    " << c_imageProcStageNames[i] <<
                 ": curr=" << m_status.currProcessUs[i] <<
@@ -85,6 +87,7 @@ void PiMgr::OutputConfig()
     cout << "  Image Processing Mode=" << c_imageProcModeNames[m_ipm] << endl;
     cout << "  Current Parameter Page=" << m_paramPage << endl;
     cout << "  Kernel Size=" << (int)m_config.kernelSize << endl;
+    cout << "  Threshold=" << (int)m_config.threshold << endl;
 }
 
 void PiMgr::UpdatePage()
@@ -102,6 +105,16 @@ void PiMgr::UpdateParam(int param, bool up)
             m_config.kernelSize += 2;
         else if (!up && (m_config.kernelSize > 1))
             m_config.kernelSize -= 2;
+        break;
+
+    case PP_THRESHOLD:
+        if ( up && (m_config.threshold < 100) )
+            m_config.threshold += 1;
+        else if (!up && (m_config.threshold > 1))
+            m_config.threshold -= 1;
+
+        // Notify "subscribers":
+        m_motionDetector->setThreshold(m_config.threshold);
         break;
     }
 }
@@ -195,18 +208,29 @@ void PiMgr::WorkerFunc()
 
 void PiMgr::ProcessFrame(Mat & frame)
 {
-    PROFILE_START;
-
     Mat * pFrameFinal = nullptr;
     eBDImageProcMode ipm = m_ipm;
     int processUs[IPS_MAX];
     memset(processUs, 0, sizeof(processUs));
+
+    PROFILE_START;
+
+    if (!m_motionDetector->update(frame))
+    {
+        return;
+    }
+    processUs[IPS_MOTIONDETECT] = PROFILE_DIFF;
+    PROFILE_START;
 
     // Use processing pipeline based on selected IPM.
     switch (ipm)
     {
     case IPM_NONE:
         pFrameFinal = &frame;
+        break;
+
+    case IPM_MOTIONDETECT:
+        pFrameFinal = &m_motionDetector->getFrame();
         break;
 
     case IPM_GRAY:
@@ -242,7 +266,7 @@ void PiMgr::ProcessFrame(Mat & frame)
     // Update status.
     if (!m_status.IsSuppressed())
     {
-        for (int i = IPS_GRAY; i < IPS_MAX; ++i)
+        for (int i = IPS_MOTIONDETECT; i < IPS_MAX; ++i)
         {
             if (processUs[i])
             {
@@ -308,6 +332,10 @@ void PiMgr::DisplayCurrentParamPage()
     {
     case PP_BLUR:
         cout << "  1) Kernel Size" << endl;
+        break;
+
+    case PP_THRESHOLD:
+        cout << "  1) Threshold" << endl;
         break;
     }
 }

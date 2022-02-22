@@ -13,6 +13,7 @@ add_executable (pi-server
     Socket.cpp
     SocketMgr.cpp
     VideoCaptureMgr.cpp
+    MotionDetector.cpp
     PiMgr.cpp
     pi-server.cpp)
 

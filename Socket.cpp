@@ -90,6 +90,7 @@ bool Socket::TransmitSizedMessage(unsigned char * pRawData, int size)
         cout << "Remote client disconnected." << endl;
         return false;
     }
+    //cout << "SENT " << size << endl;
 
     // Now send raw frame data.
     while (size)
