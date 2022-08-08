@@ -3,6 +3,7 @@
 
 #include "PiMgr.h"
 #include "MotionDetector.h"
+#include "NotificationMgr.h"
 #include "Profiling.h"
 #include "SocketMgr.h"
 #include "VideoCaptureMgr.h"
@@ -18,6 +19,7 @@ const char * const PiMgr::c_imageProcStageNames[] = {"MotionDetect", "Gray", "Bl
 
 PiMgr::PiMgr() :
     m_motionDetector(new MotionDetector(c_defThreshold)),
+    m_notificationMgr(new NotificationMgr()),
     m_config(Config(c_defKernelSize, c_defThreshold))
 {
     m_pSocketMgr = new SocketMgr(this);
@@ -283,6 +285,8 @@ void PiMgr::ProcessFrame(Mat & frame)
             }
         }
     }
+
+    m_notificationMgr->update();
 }
 
 unique_ptr<vector<uchar> > PiMgr::CompressFrame(Mat * pFrame) const

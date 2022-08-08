@@ -99,6 +99,7 @@ struct Config
 
 class SocketMgr;
 class MotionDetector;
+class NotificationMgr;
 
 
 class PiMgr
@@ -108,12 +109,13 @@ class PiMgr
     static constexpr int c_frameSkip = 2;
     static constexpr int c_frameBacklogMin = -5;
     static constexpr int c_defKernelSize = 5;
-    static constexpr int c_defThreshold = 20;
+    static constexpr int c_defThreshold = 40;
     static constexpr int c_numTxSegments = 4;
 
     eBDErrorCode m_errorCode = EC_NONE;
     SocketMgr * m_pSocketMgr;
     std::unique_ptr<MotionDetector> m_motionDetector;
+    std::unique_ptr<NotificationMgr> m_notificationMgr;
     boost::thread m_thread;
     volatile bool m_running = false;
     bool m_interrupted = false;
