@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -112,6 +113,8 @@ class PiMgr
     static constexpr int c_defThreshold = 40;
     static constexpr int c_numTxSegments = 4;
 
+    using CompressFramePtr = std::unique_ptr<std::vector<uchar>>;
+
     eBDErrorCode m_errorCode = EC_NONE;
     SocketMgr * m_pSocketMgr;
     std::unique_ptr<MotionDetector> m_motionDetector;
@@ -128,6 +131,8 @@ class PiMgr
     cv::Mat m_frameGray;
     cv::Mat m_frameFilter;
     bool m_debugMode = false;
+    std::queue<CompressFramePtr> m_frameQueue;
+    mutable std::mutex m_frameQueueMutex;
 
 public:
     PiMgr();
@@ -151,7 +156,7 @@ public:
 private:
     void WorkerFunc();
     void ProcessFrame(cv::Mat & frame);
-    std::unique_ptr<std::vector<uchar> > CompressFrame(cv::Mat * pFrame) const;
+    CompressFramePtr CompressFrame(cv::Mat * pFrame) const;
     void DisplayCurrentParamPage();
 
 };

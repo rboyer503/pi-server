@@ -217,51 +217,69 @@ void PiMgr::ProcessFrame(Mat & frame)
 
     PROFILE_START;
 
-    if (!m_motionDetector->update(frame))
-    {
-        return;
-    }
+    bool motionDetected = m_motionDetector->update(frame);
     processUs[IPS_MOTIONDETECT] = PROFILE_DIFF;
     PROFILE_START;
 
-    // Use processing pipeline based on selected IPM.
-    switch (ipm)
+    if (motionDetected)
     {
-    case IPM_NONE:
-        pFrameFinal = &frame;
-        break;
+        m_notificationMgr->update();
 
-    case IPM_MOTIONDETECT:
-        pFrameFinal = &m_motionDetector->getFrame();
-        break;
+        // Use processing pipeline based on selected IPM.
+        switch (ipm)
+        {
+        case IPM_NONE:
+            pFrameFinal = &frame;
+            break;
 
-    case IPM_GRAY:
-        // Convert to grayscale image.
-        cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
-        processUs[IPS_GRAY] = PROFILE_DIFF;
-        PROFILE_START;
+        case IPM_MOTIONDETECT:
+            pFrameFinal = &m_motionDetector->getFrame();
+            break;
 
-        pFrameFinal = &m_frameGray;
-        break;
+        case IPM_GRAY:
+            // Convert to grayscale image.
+            cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
+            processUs[IPS_GRAY] = PROFILE_DIFF;
+            PROFILE_START;
 
-    case IPM_BLUR:
-        // Convert to grayscale image and apply gaussian blur.
-        cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
-        processUs[IPS_GRAY] = PROFILE_DIFF;
-        PROFILE_START;
+            pFrameFinal = &m_frameGray;
+            break;
 
-        GaussianBlur(m_frameGray, m_frameFilter, Size(m_config.kernelSize, m_config.kernelSize), 0, 0);
-        processUs[IPS_BLUR] = PROFILE_DIFF;
-        PROFILE_START;
+        case IPM_BLUR:
+            // Convert to grayscale image and apply gaussian blur.
+            cvtColor(frame, m_frameGray, COLOR_BGR2GRAY);
+            processUs[IPS_GRAY] = PROFILE_DIFF;
+            PROFILE_START;
 
-        pFrameFinal = &m_frameFilter;
-        break;
+            GaussianBlur(m_frameGray, m_frameFilter, Size(m_config.kernelSize, m_config.kernelSize), 0, 0);
+            processUs[IPS_BLUR] = PROFILE_DIFF;
+            PROFILE_START;
+
+            pFrameFinal = &m_frameFilter;
+            break;
+        }
+
+        {
+            unique_lock<mutex> lock(m_frameQueueMutex);
+            m_frameQueue.push(CompressFrame(pFrameFinal));
+        }
     }
 
     // Compress and transmit the frame if the client is ready.
     if (m_pSocketMgr->IsReady())
     {
-        m_pSocketMgr->SendFrame(CompressFrame(pFrameFinal));
+        CompressFramePtr compressedFrame;
+        {
+            unique_lock<mutex> lock(m_frameQueueMutex);
+
+            if (!m_frameQueue.empty())
+            {
+                compressedFrame = move(m_frameQueue.front());
+                m_frameQueue.pop();
+            }
+        }
+
+        m_pSocketMgr->SendFrame(move(compressedFrame));
         processUs[IPS_SENT] = PROFILE_DIFF;
     }
 
@@ -285,11 +303,9 @@ void PiMgr::ProcessFrame(Mat & frame)
             }
         }
     }
-
-    m_notificationMgr->update();
 }
 
-unique_ptr<vector<uchar> > PiMgr::CompressFrame(Mat * pFrame) const
+PiMgr::CompressFramePtr PiMgr::CompressFrame(Mat * pFrame) const
 {
     // Encode as PNG with fast compression.
     vector<int> compression_params;

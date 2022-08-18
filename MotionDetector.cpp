@@ -19,7 +19,7 @@ bool MotionDetector::update(Mat & frame)
     resize(frame, frameCurrent, Size(), 0.5, 0.5);
     cvtColor(frameCurrent, frameCurrent, COLOR_BGR2GRAY);
 
-    int voteCount = 1;
+    int voteCount = 0;
     if (!framePrevious.empty())
     {
         Mat frameDiff;
@@ -27,7 +27,7 @@ bool MotionDetector::update(Mat & frame)
         cv::threshold(frameDiff, frameDiff, threshold, 255, THRESH_BINARY);
 
         voteCount = countNonZero(frameDiff);
-        if (voteCount) 
+        if (voteCount)
         {
             cout << "COUNT: " << voteCount << endl;
         }
